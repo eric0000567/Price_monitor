@@ -1,0 +1,26 @@
+{
+    "trading_pairs": [
+        "ETHUSDT",
+        "BTCUSDT",
+        "ADAUSDT",
+        "SOLUSDT",
+        "DOGEUSDT",
+        "XRPUSDT",
+        "TRXUSDT",
+        "LTCUSDT",
+        "BCHUSDT",
+        "XLMUSDT",
+        "LINKUSDT"
+    ],
+    "update_interval": 30,
+    "display_currency": "USDT",
+    "show_percentage_change": true,
+    "notification_enabled": true,
+    "price_alert_enabled": false,
+    "alert_thresholds": {
+        "ETHUSDT": {
+            "high": 2585,
+            "low": 2515
+        }
+    }
+} 
