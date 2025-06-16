@@ -13,14 +13,12 @@
         "LINKUSDT"
     ],
     "update_interval": 30,
-    "display_currency": "USDT",
-    "show_percentage_change": true,
-    "notification_enabled": true,
-    "price_alert_enabled": false,
+    "price_alert_enabled": true,
     "alert_thresholds": {
         "ETHUSDT": {
-            "high": 2585,
-            "low": 2515
+            "high": 2659.00,
+            "low": 2600.00
         }
-    }
-} 
+    },
+    "alert_cooldown": 30
+}

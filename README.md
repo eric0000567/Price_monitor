@@ -10,6 +10,7 @@
 - 🎨 **三種顯示模式**: 僅符號 | 簡潔模式 | 完整模式
 - 🔄 **即時價格更新**: 使用幣安 API，30 秒自動更新
 - 📊 **詳細資訊面板**: 完整的價格、漲跌、成交量資訊
+- 🚨 **價格警報功能**: 突破設定閾值時發送 macOS 系統通知
 - 🪙 **智能符號支援**: 自動識別新加密貨幣並生成符號
 - ⚙️ **配置檔案驅動**: 透過 JSON 檔案完全自訂
 
@@ -91,23 +92,29 @@ chmod +x run_menubar.sh
         "LINKUSDT"
     ],
     "update_interval": 30,
-    "display_currency": "USDT",
-    "show_percentage_change": true,
-    "notification_enabled": true,
-    "price_alert_enabled": false,
+    "price_alert_enabled": true,
     "alert_thresholds": {
+        "BTCUSDT": {
+            "high": 70000,
+            "low": 65000
+        },
         "ETHUSDT": {
-            "high": 2585,
-            "low": 2515
+            "high": 2600,
+            "low": 2400
         }
-    }
+    },
+    "alert_cooldown": 300
 }
 ```
 
 ### 配置說明
 - **trading_pairs**: 要監控的交易對列表（必須是幣安支援的）
-- **update_interval**: 價格更新間隔（秒）
-- **其他欄位**: 保留用於未來功能擴展
+- **update_interval**: 價格更新間隔（秒，建議不少於 30 秒）
+- **price_alert_enabled**: 是否啟用價格警報功能
+- **alert_thresholds**: 各交易對的警報閾值設定
+  - **high**: 高價警報閾值（價格達到或超過時觸發）
+  - **low**: 低價警報閾值（價格達到或低於時觸發）
+- **alert_cooldown**: 警報冷卻時間（秒），避免重複通知
 
 ## 🎨 使用指南
 
@@ -147,6 +154,21 @@ chmod +x run_menubar.sh
 ### 手動重新整理
 
 點擊選單中的「🔄 重新整理」立即更新價格。
+
+### 價格警報設定
+
+如果在配置檔案中啟用了價格警報功能：
+
+1. 點擊選單欄圖示
+2. 選擇「🚨 警報設定」
+3. 分別設定高價和低價警報閾值
+4. 當價格突破閾值時，會收到 macOS 系統通知
+
+**警報特色**：
+- 🔔 **系統通知**：使用 macOS 原生通知系統
+- ⏰ **智能冷卻**：避免短時間內重複通知（預設 5 分鐘）
+- 🎯 **精準觸發**：只在價格首次突破閾值時觸發
+- 💾 **自動儲存**：設定會自動存入配置檔案
 
 ## 🔧 進階功能
 
