@@ -24,8 +24,8 @@
     "binance_api": {
         "api_key": "",
         "api_secret": "",
-        "testnet": true,
-        "trading_enabled": false,
+        "testnet": false,
+        "trading_enabled": true,
         "_comment": "API 密鑰可以直接設定在這裡，或使用環境變數 BINANCE_API_KEY 和 BINANCE_API_SECRET"
     },
     "trading_settings": {

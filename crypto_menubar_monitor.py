@@ -15,8 +15,6 @@ import time
 import threading
 import requests
 from datetime import datetime
-import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
 import hashlib
 import hmac
 import urllib.parse
@@ -38,6 +36,7 @@ except ImportError:
     RUMPS_AVAILABLE = False
     print("❌ rumps 套件未安裝")
     print("請執行: pip install rumps")
+    sys.exit(1)
 
 # 檢查並導入 python-binance
 try:
@@ -838,128 +837,157 @@ class CryptoMenuBarMonitor(rumps.App):
     # ==================== 交易功能方法 ====================
     
     def show_trading_dialog(self, order_type, side, symbol=None):
-        """顯示交易對話框"""
+        """使用改進的對話框顯示交易設定，解決焦點問題"""
         if symbol is None:
             symbol = self.trading_pairs[self.current_crypto_index]
         
-        # 創建主窗口
-        root = tk.Tk()
-        root.title(f"幣安交易 - {order_type} {side}")
-        root.geometry("400x500")
-        root.resizable(False, False)
-        
-        # 使用變數來儲存結果
-        result = {'confirmed': False}
-        
-        # 標題
-        title_frame = tk.Frame(root)
-        title_frame.pack(pady=10)
-        tk.Label(title_frame, text=f"📈 {order_type} {side}", font=("Arial", 16, "bold")).pack()
-        tk.Label(title_frame, text=symbol, font=("Arial", 14)).pack()
+        print(f"🔄 正在顯示 {order_type} {side} 對話框...")
         
         # 獲取當前價格
         current_price = 0
         if symbol in self.crypto_data:
             current_price = self.crypto_data[symbol]['price']
         
-        tk.Label(title_frame, text=f"當前價格: ${current_price:,.6f}", font=("Arial", 12)).pack()
+        # 獲取預設值
+        default_quantity = self.trading_settings.get('default_quantity_usdt', 10)
+        default_leverage = self.trading_settings.get('default_leverage', 1)
+        default_sl = self.trading_settings.get('default_stop_loss_percentage', 5)
+        default_tp = self.trading_settings.get('default_take_profit_percentage', 10)
         
-        # 交易參數框架
-        params_frame = tk.LabelFrame(root, text="交易參數", font=("Arial", 12))
-        params_frame.pack(pady=10, padx=20, fill="both", expand=True)
+        # 使用系統對話框解決焦點問題
+        import subprocess
         
-        # 數量/金額
-        tk.Label(params_frame, text="數量 (USDT):", font=("Arial", 10)).pack(anchor="w", padx=10, pady=(10,0))
-        quantity_var = tk.StringVar(value=str(self.trading_settings.get('default_quantity_usdt', 10)))
-        quantity_entry = tk.Entry(params_frame, textvariable=quantity_var, font=("Arial", 10))
-        quantity_entry.pack(fill="x", padx=10, pady=(0,10))
-        
-        # 價格 (限價訂單才顯示)
-        price_frame = tk.Frame(params_frame)
-        if "限價" in order_type:
-            price_frame.pack(fill="x", padx=10, pady=(0,10))
-            tk.Label(price_frame, text="限價 (USDT):", font=("Arial", 10)).pack(anchor="w")
-            price_var = tk.StringVar(value=str(current_price))
-            price_entry = tk.Entry(price_frame, textvariable=price_var, font=("Arial", 10))
-            price_entry.pack(fill="x")
-        else:
-            price_var = None
-        
-        # 槓桿 (合約交易才顯示)
-        leverage_frame = tk.Frame(params_frame)
-        if "合約" in order_type:
-            leverage_frame.pack(fill="x", padx=10, pady=(0,10))
-            tk.Label(leverage_frame, text="槓桿倍數:", font=("Arial", 10)).pack(anchor="w")
-            leverage_var = tk.IntVar(value=self.trading_settings.get('default_leverage', 1))
-            leverage_scale = tk.Scale(leverage_frame, from_=1, to=20, orient="horizontal", variable=leverage_var)
-            leverage_scale.pack(fill="x")
-        else:
-            leverage_var = None
-        
-        # 止盈止損設定
-        sl_tp_frame = tk.LabelFrame(params_frame, text="止盈止損設定", font=("Arial", 10))
-        sl_tp_frame.pack(fill="x", pady=10)
-        
-        # 止損
-        enable_sl_var = tk.BooleanVar()
-        sl_frame = tk.Frame(sl_tp_frame)
-        sl_frame.pack(fill="x", padx=10, pady=5)
-        tk.Checkbutton(sl_frame, text="啟用止損", variable=enable_sl_var, font=("Arial", 9)).pack(anchor="w")
-        sl_var = tk.StringVar(value=str(self.trading_settings.get('default_stop_loss_percentage', 5)))
-        tk.Label(sl_frame, text="止損百分比 (%):", font=("Arial", 9)).pack(anchor="w")
-        sl_entry = tk.Entry(sl_frame, textvariable=sl_var, font=("Arial", 9))
-        sl_entry.pack(fill="x")
-        
-        # 止盈
-        enable_tp_var = tk.BooleanVar()
-        tp_frame = tk.Frame(sl_tp_frame)
-        tp_frame.pack(fill="x", padx=10, pady=5)
-        tk.Checkbutton(tp_frame, text="啟用止盈", variable=enable_tp_var, font=("Arial", 9)).pack(anchor="w")
-        tp_var = tk.StringVar(value=str(self.trading_settings.get('default_take_profit_percentage', 10)))
-        tk.Label(tp_frame, text="止盈百分比 (%):", font=("Arial", 9)).pack(anchor="w")
-        tp_entry = tk.Entry(tp_frame, textvariable=tp_var, font=("Arial", 9))
-        tp_entry.pack(fill="x")
-        
-        # 確認按鈕
-        button_frame = tk.Frame(root)
-        button_frame.pack(pady=20)
-        
-        def confirm_order():
-            try:
-                # 收集所有參數
-                params = {
-                    'symbol': symbol,
-                    'order_type': order_type,
-                    'side': side,
-                    'quantity': float(quantity_var.get()),
-                    'price': float(price_var.get()) if price_var else None,
-                    'leverage': leverage_var.get() if leverage_var else None,
-                    'stop_loss': {
-                        'enabled': enable_sl_var.get(),
-                        'percentage': float(sl_var.get()) if enable_sl_var.get() else None
-                    },
-                    'take_profit': {
-                        'enabled': enable_tp_var.get(),
-                        'percentage': float(tp_var.get()) if enable_tp_var.get() else None
-                    }
+        try:
+            # 構建輸入提示
+            params_info = []
+            params_info.append(f"交易對: {symbol}")
+            params_info.append(f"當前價格: ${current_price:,.6f}")
+            params_info.append(f"操作: {order_type} {side}")
+            params_info.append("")
+            params_info.append("請輸入交易數量 (USDT):")
+            
+            # 使用 osascript 顯示對話框以獲得更好的焦點控制
+            script = f'''
+            set userInput to display dialog "{chr(10).join(params_info)}" default answer "{default_quantity}" with title "{order_type} {side}" buttons {{"取消", "繼續"}} default button "繼續"
+            if button returned of userInput is "取消" then
+                return "CANCELLED"
+            else
+                return text returned of userInput
+            end if
+            '''
+            
+            result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+            
+            if result.returncode != 0 or result.stdout.strip() == "CANCELLED":
+                print("📋 用戶取消了操作")
+                return {'confirmed': False}
+            
+            quantity_text = result.stdout.strip().replace(',', '').replace(' ', '')
+            quantity = float(quantity_text)
+            if quantity <= 0:
+                raise ValueError("數量必須大於 0")
+            quantity = f"{quantity:.8f}".rstrip('0').rstrip('.')
+            
+            # 如果是限價訂單，獲取價格
+            price = None
+            if "限價" in order_type:
+                script = f'''
+                set userInput to display dialog "請輸入限價 (USDT):" default answer "{current_price:.6f}" with title "設定限價" buttons {{"取消", "確認"}} default button "確認"
+                if button returned of userInput is "取消" then
+                    return "CANCELLED"
+                else
+                    return text returned of userInput
+                end if
+                '''
+                
+                result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+                
+                if result.returncode != 0 or result.stdout.strip() == "CANCELLED":
+                    return {'confirmed': False}
+                
+                price_text = result.stdout.strip().replace(',', '').replace(' ', '')
+                price = float(price_text)
+                if price <= 0:
+                    raise ValueError("價格必須大於 0")
+                price = f"{price:.8f}".rstrip('0').rstrip('.')
+            
+            # 如果是合約交易，獲取槓桿
+            leverage = None
+            if "合約" in order_type:
+                script = f'''
+                set userInput to display dialog "請輸入槓桿倍數 (1-20):" default answer "{default_leverage}" with title "設定槓桿" buttons {{"取消", "確認"}} default button "確認"
+                if button returned of userInput is "取消" then
+                    return "CANCELLED"
+                else
+                    return text returned of userInput
+                end if
+                '''
+                
+                result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+                
+                if result.returncode != 0 or result.stdout.strip() == "CANCELLED":
+                    leverage = default_leverage
+                else:
+                    leverage = int(float(result.stdout.strip()))
+                    if leverage < 1 or leverage > 20:
+                        leverage = default_leverage
+            
+            # 簡化止損止盈設定 - 使用預設值或詢問是否啟用
+            sl_enabled = False
+            sl_percentage = default_sl
+            tp_enabled = False  
+            tp_percentage = default_tp
+            
+            # 組合參數
+            params = {
+                'symbol': symbol,
+                'order_type': order_type,
+                'side': side,
+                'quantity': quantity,
+                'price': price,
+                'leverage': leverage,
+                'stop_loss': {
+                    'enabled': sl_enabled,
+                    'percentage': sl_percentage
+                },
+                'take_profit': {
+                    'enabled': tp_enabled,
+                    'percentage': tp_percentage
                 }
-                result['params'] = params
-                result['confirmed'] = True
-                root.destroy()
-            except ValueError as e:
-                messagebox.showerror("錯誤", f"參數輸入錯誤: {e}")
-        
-        def cancel_order():
-            result['confirmed'] = False
-            root.destroy()
-        
-        tk.Button(button_frame, text="確認下單", command=confirm_order, bg="#4CAF50", fg="white", font=("Arial", 12, "bold"), width=12).pack(side="left", padx=5)
-        tk.Button(button_frame, text="取消", command=cancel_order, bg="#f44336", fg="white", font=("Arial", 12), width=12).pack(side="left", padx=5)
-        
-        # 顯示對話框
-        root.mainloop()
-        
-        return result
+            }
+            
+            print("✅ 交易參數收集完成")
+            return {'confirmed': True, 'params': params}
+            
+        except Exception as e:
+            print(f"❌ 對話框錯誤: {e}")
+            # 如果 osascript 失敗，回退到簡單的 rumps.alert
+            try:
+                simple_result = rumps.Window(
+                    title=f"{order_type} {side}",
+                    message=f"請輸入數量 (USDT):\n交易對: {symbol}\n當前價格: ${current_price:,.6f}",
+                    default_text=str(default_quantity),
+                    ok="確認",
+                    cancel="取消"
+                ).run()
+                
+                if simple_result.clicked == 1:
+                    quantity = f"{float(simple_result.text):.8f}".rstrip('0').rstrip('.')
+                    params = {
+                        'symbol': symbol,
+                        'order_type': order_type,
+                        'side': side,
+                        'quantity': quantity,
+                        'price': f"{current_price:.8f}".rstrip('0').rstrip('.') if "限價" in order_type else None,
+                        'leverage': default_leverage if "合約" in order_type else None,
+                        'stop_loss': {'enabled': False, 'percentage': default_sl},
+                        'take_profit': {'enabled': False, 'percentage': default_tp}
+                    }
+                    return {'confirmed': True, 'params': params}
+                else:
+                    return {'confirmed': False}
+            except:
+                return {'confirmed': False}
     
     def execute_order(self, params):
         """執行訂單"""
@@ -995,7 +1023,7 @@ class CryptoMenuBarMonitor(rumps.App):
             
         except Exception as e:
             print(f"❌ 執行訂單失敗: {e}")
-            messagebox.showerror("交易失敗", str(e))
+            rumps.alert("交易失敗", str(e))
             return None
     
     def execute_spot_order(self, params):
@@ -1009,17 +1037,26 @@ class CryptoMenuBarMonitor(rumps.App):
         if side == 'BUY':
             if "市價" in params['order_type']:
                 # 市價買入：用 USDT 數量買入
+                quantity_float = float(quantity)
+                formatted_quantity = f"{quantity_float:.8f}".rstrip('0').rstrip('.')
+                
                 order = self.binance_client.order_market_buy(
                     symbol=symbol,
-                    quoteOrderQty=quantity
+                    quoteOrderQty=formatted_quantity
                 )
             else:
                 # 限價買入：計算能買多少幣
-                coin_quantity = quantity / price
+                quantity_float = float(quantity)
+                price_float = float(price)
+                coin_quantity = quantity_float / price_float
+                # 格式化數量以符合 Binance API 要求
+                formatted_quantity = f"{coin_quantity:.8f}".rstrip('0').rstrip('.')
+                formatted_price = f"{price_float:.8f}".rstrip('0').rstrip('.')
+                
                 order = self.binance_client.order_limit_buy(
                     symbol=symbol,
-                    quantity=coin_quantity,
-                    price=str(price)
+                    quantity=formatted_quantity,
+                    price=formatted_price
                 )
         else:
             # 賣出時需要先獲得持倉數量
@@ -1037,17 +1074,25 @@ class CryptoMenuBarMonitor(rumps.App):
             
             if "市價" in params['order_type']:
                 # 市價賣出：賣出所有餘額
+                formatted_balance = f"{balance:.8f}".rstrip('0').rstrip('.')
+                
                 order = self.binance_client.order_market_sell(
                     symbol=symbol,
-                    quantity=balance
+                    quantity=formatted_balance
                 )
             else:
                 # 限價賣出
-                coin_quantity = min(balance, quantity / price)
+                quantity_float = float(quantity)
+                price_float = float(price)
+                coin_quantity = min(balance, quantity_float / price_float)
+                # 格式化數量以符合 Binance API 要求
+                formatted_quantity = f"{coin_quantity:.8f}".rstrip('0').rstrip('.')
+                formatted_price = f"{price_float:.8f}".rstrip('0').rstrip('.')
+                
                 order = self.binance_client.order_limit_sell(
                     symbol=symbol,
-                    quantity=coin_quantity,
-                    price=str(price)
+                    quantity=formatted_quantity,
+                    price=formatted_price
                 )
         
         print(f"✅ 現貨訂單執行成功: {order['orderId']}")
@@ -1065,7 +1110,10 @@ class CryptoMenuBarMonitor(rumps.App):
         
         # 計算合約數量
         current_price = self.crypto_data[symbol]['price']
-        contract_quantity = quantity / current_price
+        quantity_float = float(quantity)
+        contract_quantity = quantity_float / current_price
+        # 格式化數量以符合 Binance API 要求
+        formatted_contract_quantity = f"{contract_quantity:.8f}".rstrip('0').rstrip('.')
         
         if side == 'CLOSE':
             # 平倉：獲取當前持倉
@@ -1087,7 +1135,7 @@ class CryptoMenuBarMonitor(rumps.App):
                 symbol=symbol,
                 side=side,
                 type='MARKET',
-                quantity=contract_quantity
+                quantity=formatted_contract_quantity
             )
             print(f"✅ 合約訂單執行成功: {order['orderId']}")
             return order
@@ -1144,16 +1192,28 @@ class CryptoMenuBarMonitor(rumps.App):
     
     def spot_market_buy(self, sender):
         """現貨市價買入"""
+        print(f"🔄 現貨市價買入被觸發")
+        print(f"🔍 trading_enabled: {self.trading_enabled}")
+        print(f"🔍 binance_client: {self.binance_client is not None}")
+        
         if not self.trading_enabled:
+            print("❌ 交易功能未啟用")
             rumps.alert("交易功能未啟用", "請先在 config.json 中設定 trading_enabled: true")
             return
         
+        if not self.binance_client:
+            print("❌ 幣安客戶端未初始化")
+            rumps.alert("連接錯誤", "幣安客戶端未正確初始化")
+            return
+        
         result = self.show_trading_dialog("現貨市價", "買入")
-        if result['confirmed']:
+        if result.get('confirmed'):
             if self.trading_settings.get('order_confirmation', True):
                 if rumps.alert("確認下單", f"確定要執行現貨市價買入嗎？\n數量: {result['params']['quantity']} USDT", ok="確認", cancel="取消") != 1:
                     return
             self.execute_order(result['params'])
+        else:
+            print("📋 用戶取消了操作")
     
     def spot_market_sell(self, sender):
         """現貨市價賣出"""
@@ -1170,16 +1230,26 @@ class CryptoMenuBarMonitor(rumps.App):
     
     def spot_limit_buy(self, sender):
         """現貨限價買入"""
+        print(f"🔄 現貨限價買入被觸發")
+        
         if not self.trading_enabled:
+            print("❌ 交易功能未啟用")
             rumps.alert("交易功能未啟用", "請先在 config.json 中設定 trading_enabled: true")
             return
         
+        if not self.binance_client:
+            print("❌ 幣安客戶端未初始化")
+            rumps.alert("連接錯誤", "幣安客戶端未正確初始化")
+            return
+        
         result = self.show_trading_dialog("現貨限價", "買入")
-        if result['confirmed']:
+        if result.get('confirmed'):
             if self.trading_settings.get('order_confirmation', True):
                 if rumps.alert("確認下單", f"確定要執行現貨限價買入嗎？\n數量: {result['params']['quantity']} USDT\n價格: {result['params']['price']}", ok="確認", cancel="取消") != 1:
                     return
             self.execute_order(result['params'])
+        else:
+            print("📋 用戶取消了操作")
     
     def spot_limit_sell(self, sender):
         """現貨限價賣出"""
