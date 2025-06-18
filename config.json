@@ -16,8 +16,8 @@
     "price_alert_enabled": true,
     "alert_thresholds": {
         "BTCUSDT": {
-            "high": 105333.00,
-            "low": 104630.00
+            "high": 105300.0,
+            "low": 104650.0
         }
     },
     "alert_cooldown": 300,

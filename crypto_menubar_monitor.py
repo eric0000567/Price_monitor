@@ -725,62 +725,85 @@ class CryptoMenuBarMonitor(rumps.App):
         refresh_thread.start()
     
     def show_alert_settings(self, sender):
-        """顯示警報設定對話框"""
+        """使用 osascript 顯示警報設定對話框，解決焦點問題"""
         current_pair = self.trading_pairs[self.current_crypto_index]
         symbol = self.get_crypto_symbol(current_pair)
         name = self.get_crypto_name(current_pair)
+        
+        # 獲取當前價格作為參考
+        current_price = 0
+        if current_pair in self.crypto_data:
+            current_price = self.crypto_data[current_pair]['price']
         
         # 獲取當前閾值
         current_thresholds = self.alert_thresholds.get(current_pair, {})
         current_high = current_thresholds.get('high', '')
         current_low = current_thresholds.get('low', '')
         
-        # 顯示高價閾值設定對話框
-        high_response = rumps.Window(
-            title="🚨 設定高價警報",
-            message=f"為 {symbol} {name} 設定高價警報閾值：\n（當價格達到或超過此值時發送通知）",
-            default_text=str(current_high) if current_high else "",
-            ok="設定",
-            cancel="跳過",
-            dimensions=(350, 120)
-        ).run()
+        import subprocess
         
-        # 顯示低價閾值設定對話框
-        low_response = rumps.Window(
-            title="🚨 設定低價警報", 
-            message=f"為 {symbol} {name} 設定低價警報閾值：\n（當價格達到或低於此值時發送通知）",
-            default_text=str(current_low) if current_low else "",
-            ok="設定",
-            cancel="跳過",
-            dimensions=(350, 120)
-        ).run()
-        
-        # 處理設定結果
         try:
+            # 設定高價警報閾值
+            high_script = f'''
+            set userInput to display dialog "為 {symbol} {name} 設定高價警報閾值
+            
+當前價格: ${current_price:,.6f}
+當價格達到或超過設定值時會發送通知
+            
+請輸入高價警報閾值 (USDT):" default answer "{current_high}" with title "🚨 高價警報設定" buttons {{"跳過", "設定"}} default button "設定"
+            if button returned of userInput is "跳過" then
+                return "SKIPPED"
+            else
+                return text returned of userInput
+            end if
+            '''
+            
+            high_result = subprocess.run(['osascript', '-e', high_script], capture_output=True, text=True)
+            
+            # 設定低價警報閾值
+            low_script = f'''
+            set userInput to display dialog "為 {symbol} {name} 設定低價警報閾值
+            
+當前價格: ${current_price:,.6f}
+當價格達到或低於設定值時會發送通知
+            
+請輸入低價警報閾值 (USDT):" default answer "{current_low}" with title "🚨 低價警報設定" buttons {{"跳過", "設定"}} default button "設定"
+            if button returned of userInput is "跳過" then
+                return "SKIPPED"
+            else
+                return text returned of userInput
+            end if
+            '''
+            
+            low_result = subprocess.run(['osascript', '-e', low_script], capture_output=True, text=True)
+            
+            # 處理設定結果
             if current_pair not in self.alert_thresholds:
                 self.alert_thresholds[current_pair] = {}
             
             updated = False
             
             # 處理高價閾值
-            if high_response.clicked == 1 and high_response.text.strip():
+            if high_result.returncode == 0 and high_result.stdout.strip() not in ["SKIPPED", ""]:
                 try:
-                    high_value = float(high_response.text.strip())
-                    self.alert_thresholds[current_pair]['high'] = high_value
-                    updated = True
-                    print(f"🚨 {symbol} 高價警報閾值設定為：${high_value:,.2f}")
+                    high_value = float(high_result.stdout.strip().replace(',', '').replace(' ', ''))
+                    if high_value > 0:
+                        self.alert_thresholds[current_pair]['high'] = high_value
+                        updated = True
+                        print(f"🚨 {symbol} 高價警報閾值設定為：${high_value:,.2f}")
                 except ValueError:
-                    rumps.alert("❌ 錯誤", "高價閾值必須是有效數字")
+                    subprocess.run(['osascript', '-e', 'display alert "錯誤" message "高價閾值必須是有效數字"'], capture_output=True)
             
             # 處理低價閾值
-            if low_response.clicked == 1 and low_response.text.strip():
+            if low_result.returncode == 0 and low_result.stdout.strip() not in ["SKIPPED", ""]:
                 try:
-                    low_value = float(low_response.text.strip())
-                    self.alert_thresholds[current_pair]['low'] = low_value
-                    updated = True
-                    print(f"🚨 {symbol} 低價警報閾值設定為：${low_value:,.2f}")
+                    low_value = float(low_result.stdout.strip().replace(',', '').replace(' ', ''))
+                    if low_value > 0:
+                        self.alert_thresholds[current_pair]['low'] = low_value
+                        updated = True
+                        print(f"🚨 {symbol} 低價警報閾值設定為：${low_value:,.2f}")
                 except ValueError:
-                    rumps.alert("❌ 錯誤", "低價閾值必須是有效數字")
+                    subprocess.run(['osascript', '-e', 'display alert "錯誤" message "低價閾值必須是有效數字"'], capture_output=True)
             
             if updated:
                 # 重置該交易對的警報狀態
@@ -791,10 +814,24 @@ class CryptoMenuBarMonitor(rumps.App):
                 
                 # 儲存配置到檔案
                 self.save_alert_config()
-                rumps.alert("✅ 完成", f"{symbol} {name} 的警報設定已更新")
+                
+                # 顯示成功訊息
+                success_script = f'''
+                display alert "✅ 警報設定完成" message "{symbol} {name} 的警報設定已更新並儲存到 config.json"
+                '''
+                subprocess.run(['osascript', '-e', success_script], capture_output=True)
+                
+                print(f"✅ {symbol} {name} 的警報設定已更新並儲存")
+            else:
+                print("📋 警報設定未變更")
             
         except Exception as e:
-            rumps.alert("❌ 錯誤", f"設定警報時發生錯誤: {e}")
+            print(f"❌ 設定警報時發生錯誤: {e}")
+            # 備用方案：使用 rumps.alert
+            try:
+                rumps.alert("❌ 錯誤", f"設定警報時發生錯誤: {e}")
+            except:
+                pass
     
     def save_alert_config(self):
         """儲存警報配置到檔案"""
