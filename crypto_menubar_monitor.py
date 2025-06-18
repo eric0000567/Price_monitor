@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-⚡ 賽博龐克加密貨幣選單欄監控器 v3.2 ⚡
+⚡ 加密貨幣選單欄監控器 v4.0 ⚡
 🔄 使用幣安 (Binance) API - 精簡版
 🌐 選單欄應用 - 跨所有桌面空間顯示
 🎯 只獲取當前選擇的加密貨幣，節省網路資源
+💰 支援幣安現貨和合約交易功能
 """
 
 import sys
@@ -14,6 +15,20 @@ import time
 import threading
 import requests
 from datetime import datetime
+import tkinter as tk
+from tkinter import messagebox, simpledialog, ttk
+import hashlib
+import hmac
+import urllib.parse
+import os
+
+# 檢查並導入 dotenv
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # 載入 .env 文件中的環境變數
+    DOTENV_AVAILABLE = True
+except ImportError:
+    DOTENV_AVAILABLE = False
 
 # 檢查並導入 rumps
 try:
@@ -23,6 +38,16 @@ except ImportError:
     RUMPS_AVAILABLE = False
     print("❌ rumps 套件未安裝")
     print("請執行: pip install rumps")
+
+# 檢查並導入 python-binance
+try:
+    from binance.client import Client
+    from binance.exceptions import BinanceAPIException
+    BINANCE_AVAILABLE = True
+except ImportError:
+    BINANCE_AVAILABLE = False
+    print("⚠️ python-binance 套件未安裝")
+    print("請執行: pip install python-binance")
 
 class CryptoMenuBarMonitor(rumps.App):
     def __init__(self):
@@ -38,6 +63,9 @@ class CryptoMenuBarMonitor(rumps.App):
         self.current_crypto_index = 0
         self.crypto_data = {}
         self.display_mode = "compact"  # compact, full, symbol_only
+        
+        # 初始化幣安客戶端
+        self.init_binance_client()
         
         # 設定選單
         self.setup_menu()
@@ -55,6 +83,10 @@ class CryptoMenuBarMonitor(rumps.App):
             self.price_alert_enabled = config.get('price_alert_enabled', False)
             self.alert_thresholds = config.get('alert_thresholds', {})
             self.alert_cooldown = config.get('alert_cooldown', 300)  # 5分鐘冷卻時間
+            
+            # 幣安 API 配置
+            self.binance_config = config.get('binance_api', {})
+            self.trading_settings = config.get('trading_settings', {})
             
             if not self.trading_pairs:
                 print("⚠️ 配置檔案中沒有交易對，請檢查 config.json")
@@ -107,6 +139,61 @@ class CryptoMenuBarMonitor(rumps.App):
         # 初始化警報狀態追蹤
         self.last_alert_time = {}  # 記錄上次警報時間，避免重複通知
         self.alert_triggered = {}  # 記錄已觸發的警報狀態
+    
+    def init_binance_client(self):
+        """初始化幣安客戶端"""
+        self.binance_client = None
+        self.trading_enabled = False
+        
+        if not BINANCE_AVAILABLE:
+            print("⚠️ python-binance 套件未安裝，交易功能將被停用")
+            return
+        
+        # 支援環境變數配置，優先順序：環境變數 > config.json
+        api_key = os.environ.get('BINANCE_API_KEY') or self.binance_config.get('api_key', '')
+        api_secret = os.environ.get('BINANCE_API_SECRET') or self.binance_config.get('api_secret', '')
+        testnet = self.binance_config.get('testnet', True)
+        trading_enabled = self.binance_config.get('trading_enabled', False)
+        
+        # 顯示密鑰來源資訊（不顯示實際密鑰內容）
+        if os.environ.get('BINANCE_API_KEY'):
+            print("🔑 使用環境變數中的 API 密鑰")
+        elif api_key:
+            print("🔑 使用配置文件中的 API 密鑰")
+        else:
+            print("⚠️ 未找到 API 密鑰")
+        
+        if not api_key or not api_secret:
+            print("⚠️ 幣安 API 密鑰未設定，交易功能將被停用")
+            print("請在 config.json 中設定 binance_api.api_key 和 binance_api.api_secret")
+            return
+        
+        try:
+            self.binance_client = Client(
+                api_key=api_key,
+                api_secret=api_secret,
+                testnet=testnet
+            )
+            
+            # 測試連接
+            account_info = self.binance_client.get_account()
+            self.trading_enabled = trading_enabled
+            
+            if testnet:
+                print("🧪 幣安測試網連接成功")
+            else:
+                print("🚀 幣安主網連接成功")
+            
+            if trading_enabled:
+                print("💰 交易功能已啟用")
+            else:
+                print("🔒 交易功能已停用（請在 config.json 中設定 trading_enabled: true）")
+                
+        except Exception as e:
+            print(f"❌ 幣安 API 連接失敗: {e}")
+            print("請檢查 API 密鑰是否正確")
+            self.binance_client = None
+            self.trading_enabled = False
     
     def get_crypto_symbol(self, trading_pair):
         """動態獲取加密貨幣符號"""
@@ -351,6 +438,34 @@ class CryptoMenuBarMonitor(rumps.App):
         
         # 分隔線
         self.menu.add(rumps.separator)
+        
+        # 交易功能選單
+        if self.trading_enabled and self.binance_client:
+            self.trading_submenu = rumps.MenuItem("💰 交易功能")
+            
+            # 現貨交易
+            self.spot_trading_submenu = rumps.MenuItem("📈 現貨交易")
+            self.spot_trading_submenu.add(rumps.MenuItem("🟢 市價買入", callback=self.spot_market_buy))
+            self.spot_trading_submenu.add(rumps.MenuItem("🔴 市價賣出", callback=self.spot_market_sell))
+            self.spot_trading_submenu.add(rumps.MenuItem("🎯 限價買入", callback=self.spot_limit_buy))
+            self.spot_trading_submenu.add(rumps.MenuItem("🎯 限價賣出", callback=self.spot_limit_sell))
+            self.trading_submenu.add(self.spot_trading_submenu)
+            
+            # 合約交易
+            self.futures_trading_submenu = rumps.MenuItem("⚡ 合約交易")
+            self.futures_trading_submenu.add(rumps.MenuItem("📈 做多", callback=self.futures_long))
+            self.futures_trading_submenu.add(rumps.MenuItem("📉 做空", callback=self.futures_short))
+            self.futures_trading_submenu.add(rumps.MenuItem("🔄 平倉", callback=self.futures_close))
+            self.trading_submenu.add(self.futures_trading_submenu)
+            
+            # 帳戶資訊
+            self.trading_submenu.add(rumps.separator)
+            self.trading_submenu.add(rumps.MenuItem("💼 帳戶餘額", callback=self.show_account_balance))
+            self.trading_submenu.add(rumps.MenuItem("📊 持倉資訊", callback=self.show_positions))
+            self.trading_submenu.add(rumps.MenuItem("📋 訂單紀錄", callback=self.show_orders))
+            
+            self.menu.add(self.trading_submenu)
+            self.menu.add(rumps.separator)
         
         # 重新整理按鈕
         self.menu.add(rumps.MenuItem("🔄 重新整理", callback=self.manual_refresh))
@@ -720,6 +835,511 @@ class CryptoMenuBarMonitor(rumps.App):
         self.get_prices_for_alerts()
         rumps.alert("✅ 完成", "已完成立即警報檢查，請查看終端輸出了解詳情。")
     
+    # ==================== 交易功能方法 ====================
+    
+    def show_trading_dialog(self, order_type, side, symbol=None):
+        """顯示交易對話框"""
+        if symbol is None:
+            symbol = self.trading_pairs[self.current_crypto_index]
+        
+        # 創建主窗口
+        root = tk.Tk()
+        root.title(f"幣安交易 - {order_type} {side}")
+        root.geometry("400x500")
+        root.resizable(False, False)
+        
+        # 使用變數來儲存結果
+        result = {'confirmed': False}
+        
+        # 標題
+        title_frame = tk.Frame(root)
+        title_frame.pack(pady=10)
+        tk.Label(title_frame, text=f"📈 {order_type} {side}", font=("Arial", 16, "bold")).pack()
+        tk.Label(title_frame, text=symbol, font=("Arial", 14)).pack()
+        
+        # 獲取當前價格
+        current_price = 0
+        if symbol in self.crypto_data:
+            current_price = self.crypto_data[symbol]['price']
+        
+        tk.Label(title_frame, text=f"當前價格: ${current_price:,.6f}", font=("Arial", 12)).pack()
+        
+        # 交易參數框架
+        params_frame = tk.LabelFrame(root, text="交易參數", font=("Arial", 12))
+        params_frame.pack(pady=10, padx=20, fill="both", expand=True)
+        
+        # 數量/金額
+        tk.Label(params_frame, text="數量 (USDT):", font=("Arial", 10)).pack(anchor="w", padx=10, pady=(10,0))
+        quantity_var = tk.StringVar(value=str(self.trading_settings.get('default_quantity_usdt', 10)))
+        quantity_entry = tk.Entry(params_frame, textvariable=quantity_var, font=("Arial", 10))
+        quantity_entry.pack(fill="x", padx=10, pady=(0,10))
+        
+        # 價格 (限價訂單才顯示)
+        price_frame = tk.Frame(params_frame)
+        if "限價" in order_type:
+            price_frame.pack(fill="x", padx=10, pady=(0,10))
+            tk.Label(price_frame, text="限價 (USDT):", font=("Arial", 10)).pack(anchor="w")
+            price_var = tk.StringVar(value=str(current_price))
+            price_entry = tk.Entry(price_frame, textvariable=price_var, font=("Arial", 10))
+            price_entry.pack(fill="x")
+        else:
+            price_var = None
+        
+        # 槓桿 (合約交易才顯示)
+        leverage_frame = tk.Frame(params_frame)
+        if "合約" in order_type:
+            leverage_frame.pack(fill="x", padx=10, pady=(0,10))
+            tk.Label(leverage_frame, text="槓桿倍數:", font=("Arial", 10)).pack(anchor="w")
+            leverage_var = tk.IntVar(value=self.trading_settings.get('default_leverage', 1))
+            leverage_scale = tk.Scale(leverage_frame, from_=1, to=20, orient="horizontal", variable=leverage_var)
+            leverage_scale.pack(fill="x")
+        else:
+            leverage_var = None
+        
+        # 止盈止損設定
+        sl_tp_frame = tk.LabelFrame(params_frame, text="止盈止損設定", font=("Arial", 10))
+        sl_tp_frame.pack(fill="x", pady=10)
+        
+        # 止損
+        enable_sl_var = tk.BooleanVar()
+        sl_frame = tk.Frame(sl_tp_frame)
+        sl_frame.pack(fill="x", padx=10, pady=5)
+        tk.Checkbutton(sl_frame, text="啟用止損", variable=enable_sl_var, font=("Arial", 9)).pack(anchor="w")
+        sl_var = tk.StringVar(value=str(self.trading_settings.get('default_stop_loss_percentage', 5)))
+        tk.Label(sl_frame, text="止損百分比 (%):", font=("Arial", 9)).pack(anchor="w")
+        sl_entry = tk.Entry(sl_frame, textvariable=sl_var, font=("Arial", 9))
+        sl_entry.pack(fill="x")
+        
+        # 止盈
+        enable_tp_var = tk.BooleanVar()
+        tp_frame = tk.Frame(sl_tp_frame)
+        tp_frame.pack(fill="x", padx=10, pady=5)
+        tk.Checkbutton(tp_frame, text="啟用止盈", variable=enable_tp_var, font=("Arial", 9)).pack(anchor="w")
+        tp_var = tk.StringVar(value=str(self.trading_settings.get('default_take_profit_percentage', 10)))
+        tk.Label(tp_frame, text="止盈百分比 (%):", font=("Arial", 9)).pack(anchor="w")
+        tp_entry = tk.Entry(tp_frame, textvariable=tp_var, font=("Arial", 9))
+        tp_entry.pack(fill="x")
+        
+        # 確認按鈕
+        button_frame = tk.Frame(root)
+        button_frame.pack(pady=20)
+        
+        def confirm_order():
+            try:
+                # 收集所有參數
+                params = {
+                    'symbol': symbol,
+                    'order_type': order_type,
+                    'side': side,
+                    'quantity': float(quantity_var.get()),
+                    'price': float(price_var.get()) if price_var else None,
+                    'leverage': leverage_var.get() if leverage_var else None,
+                    'stop_loss': {
+                        'enabled': enable_sl_var.get(),
+                        'percentage': float(sl_var.get()) if enable_sl_var.get() else None
+                    },
+                    'take_profit': {
+                        'enabled': enable_tp_var.get(),
+                        'percentage': float(tp_var.get()) if enable_tp_var.get() else None
+                    }
+                }
+                result['params'] = params
+                result['confirmed'] = True
+                root.destroy()
+            except ValueError as e:
+                messagebox.showerror("錯誤", f"參數輸入錯誤: {e}")
+        
+        def cancel_order():
+            result['confirmed'] = False
+            root.destroy()
+        
+        tk.Button(button_frame, text="確認下單", command=confirm_order, bg="#4CAF50", fg="white", font=("Arial", 12, "bold"), width=12).pack(side="left", padx=5)
+        tk.Button(button_frame, text="取消", command=cancel_order, bg="#f44336", fg="white", font=("Arial", 12), width=12).pack(side="left", padx=5)
+        
+        # 顯示對話框
+        root.mainloop()
+        
+        return result
+    
+    def execute_order(self, params):
+        """執行訂單"""
+        try:
+            symbol = params['symbol']
+            order_type = params['order_type']
+            side = params['side']
+            quantity = params['quantity']
+            price = params.get('price')
+            leverage = params.get('leverage')
+            
+            print(f"🔄 正在執行 {order_type} {side} 訂單...")
+            print(f"交易對: {symbol}")
+            print(f"數量: {quantity} USDT")
+            if price:
+                print(f"價格: {price}")
+            if leverage:
+                print(f"槓桿: {leverage}x")
+            
+            # 根據訂單類型執行不同的交易
+            if "現貨" in order_type:
+                result = self.execute_spot_order(params)
+            elif "合約" in order_type:
+                result = self.execute_futures_order(params)
+            else:
+                raise Exception("未知的訂單類型")
+            
+            # 設定止盈止損
+            if result and (params['stop_loss']['enabled'] or params['take_profit']['enabled']):
+                self.set_stop_loss_take_profit(result, params)
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ 執行訂單失敗: {e}")
+            messagebox.showerror("交易失敗", str(e))
+            return None
+    
+    def execute_spot_order(self, params):
+        """執行現貨訂單"""
+        symbol = params['symbol']
+        side = params['side'].replace('買入', 'BUY').replace('賣出', 'SELL')
+        quantity = params['quantity']
+        price = params.get('price')
+        
+        # 計算實際購買的幣種數量
+        if side == 'BUY':
+            if "市價" in params['order_type']:
+                # 市價買入：用 USDT 數量買入
+                order = self.binance_client.order_market_buy(
+                    symbol=symbol,
+                    quoteOrderQty=quantity
+                )
+            else:
+                # 限價買入：計算能買多少幣
+                coin_quantity = quantity / price
+                order = self.binance_client.order_limit_buy(
+                    symbol=symbol,
+                    quantity=coin_quantity,
+                    price=str(price)
+                )
+        else:
+            # 賣出時需要先獲得持倉數量
+            account = self.binance_client.get_account()
+            coin_symbol = symbol.replace('USDT', '')
+            balance = 0
+            
+            for asset in account['balances']:
+                if asset['asset'] == coin_symbol:
+                    balance = float(asset['free'])
+                    break
+            
+            if balance <= 0:
+                raise Exception(f"沒有足夠的 {coin_symbol} 餘額")
+            
+            if "市價" in params['order_type']:
+                # 市價賣出：賣出所有餘額
+                order = self.binance_client.order_market_sell(
+                    symbol=symbol,
+                    quantity=balance
+                )
+            else:
+                # 限價賣出
+                coin_quantity = min(balance, quantity / price)
+                order = self.binance_client.order_limit_sell(
+                    symbol=symbol,
+                    quantity=coin_quantity,
+                    price=str(price)
+                )
+        
+        print(f"✅ 現貨訂單執行成功: {order['orderId']}")
+        return order
+    
+    def execute_futures_order(self, params):
+        """執行合約訂單"""
+        symbol = params['symbol']
+        side = params['side'].replace('做多', 'BUY').replace('做空', 'SELL').replace('平倉', 'CLOSE')
+        quantity = params['quantity']
+        leverage = params.get('leverage', 1)
+        
+        # 設定槓桿
+        self.binance_client.futures_change_leverage(symbol=symbol, leverage=leverage)
+        
+        # 計算合約數量
+        current_price = self.crypto_data[symbol]['price']
+        contract_quantity = quantity / current_price
+        
+        if side == 'CLOSE':
+            # 平倉：獲取當前持倉
+            positions = self.binance_client.futures_position_information(symbol=symbol)
+            for pos in positions:
+                if float(pos['positionAmt']) != 0:
+                    position_side = 'SELL' if float(pos['positionAmt']) > 0 else 'BUY'
+                    order = self.binance_client.futures_create_order(
+                        symbol=symbol,
+                        side=position_side,
+                        type='MARKET',
+                        quantity=abs(float(pos['positionAmt']))
+                    )
+                    print(f"✅ 合約平倉成功: {order['orderId']}")
+                    return order
+        else:
+            # 開倉
+            order = self.binance_client.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type='MARKET',
+                quantity=contract_quantity
+            )
+            print(f"✅ 合約訂單執行成功: {order['orderId']}")
+            return order
+        
+        return None
+    
+    def set_stop_loss_take_profit(self, order, params):
+        """設定止盈止損"""
+        try:
+            if "現貨" in params['order_type']:
+                # 現貨止盈止損 (OCO 訂單)
+                pass  # 需要更複雜的邏輯
+            elif "合約" in params['order_type']:
+                # 合約止盈止損
+                symbol = params['symbol']
+                current_price = self.crypto_data[symbol]['price']
+                
+                if params['stop_loss']['enabled']:
+                    sl_percentage = params['stop_loss']['percentage']
+                    if 'BUY' in order.get('side', ''):
+                        sl_price = current_price * (1 - sl_percentage / 100)
+                    else:
+                        sl_price = current_price * (1 + sl_percentage / 100)
+                    
+                    self.binance_client.futures_create_order(
+                        symbol=symbol,
+                        side='SELL' if 'BUY' in order.get('side', '') else 'BUY',
+                        type='STOP_MARKET',
+                        stopPrice=sl_price,
+                        closePosition=True
+                    )
+                    print(f"✅ 止損訂單設定成功: {sl_price}")
+                
+                if params['take_profit']['enabled']:
+                    tp_percentage = params['take_profit']['percentage']
+                    if 'BUY' in order.get('side', ''):
+                        tp_price = current_price * (1 + tp_percentage / 100)
+                    else:
+                        tp_price = current_price * (1 - tp_percentage / 100)
+                    
+                    self.binance_client.futures_create_order(
+                        symbol=symbol,
+                        side='SELL' if 'BUY' in order.get('side', '') else 'BUY',
+                        type='TAKE_PROFIT_MARKET',
+                        stopPrice=tp_price,
+                        closePosition=True
+                    )
+                    print(f"✅ 止盈訂單設定成功: {tp_price}")
+                    
+        except Exception as e:
+            print(f"⚠️ 設定止盈止損失敗: {e}")
+    
+    # ==================== 現貨交易方法 ====================
+    
+    def spot_market_buy(self, sender):
+        """現貨市價買入"""
+        if not self.trading_enabled:
+            rumps.alert("交易功能未啟用", "請先在 config.json 中設定 trading_enabled: true")
+            return
+        
+        result = self.show_trading_dialog("現貨市價", "買入")
+        if result['confirmed']:
+            if self.trading_settings.get('order_confirmation', True):
+                if rumps.alert("確認下單", f"確定要執行現貨市價買入嗎？\n數量: {result['params']['quantity']} USDT", ok="確認", cancel="取消") != 1:
+                    return
+            self.execute_order(result['params'])
+    
+    def spot_market_sell(self, sender):
+        """現貨市價賣出"""
+        if not self.trading_enabled:
+            rumps.alert("交易功能未啟用", "請先在 config.json 中設定 trading_enabled: true")
+            return
+        
+        result = self.show_trading_dialog("現貨市價", "賣出")
+        if result['confirmed']:
+            if self.trading_settings.get('order_confirmation', True):
+                if rumps.alert("確認下單", f"確定要執行現貨市價賣出嗎？", ok="確認", cancel="取消") != 1:
+                    return
+            self.execute_order(result['params'])
+    
+    def spot_limit_buy(self, sender):
+        """現貨限價買入"""
+        if not self.trading_enabled:
+            rumps.alert("交易功能未啟用", "請先在 config.json 中設定 trading_enabled: true")
+            return
+        
+        result = self.show_trading_dialog("現貨限價", "買入")
+        if result['confirmed']:
+            if self.trading_settings.get('order_confirmation', True):
+                if rumps.alert("確認下單", f"確定要執行現貨限價買入嗎？\n數量: {result['params']['quantity']} USDT\n價格: {result['params']['price']}", ok="確認", cancel="取消") != 1:
+                    return
+            self.execute_order(result['params'])
+    
+    def spot_limit_sell(self, sender):
+        """現貨限價賣出"""
+        if not self.trading_enabled:
+            rumps.alert("交易功能未啟用", "請先在 config.json 中設定 trading_enabled: true")
+            return
+        
+        result = self.show_trading_dialog("現貨限價", "賣出")
+        if result['confirmed']:
+            if self.trading_settings.get('order_confirmation', True):
+                if rumps.alert("確認下單", f"確定要執行現貨限價賣出嗎？\n價格: {result['params']['price']}", ok="確認", cancel="取消") != 1:
+                    return
+            self.execute_order(result['params'])
+    
+    # ==================== 合約交易方法 ====================
+    
+    def futures_long(self, sender):
+        """合約做多"""
+        if not self.trading_enabled:
+            rumps.alert("交易功能未啟用", "請先在 config.json 中設定 trading_enabled: true")
+            return
+        
+        result = self.show_trading_dialog("合約交易", "做多")
+        if result['confirmed']:
+            if self.trading_settings.get('order_confirmation', True):
+                if rumps.alert("確認下單", f"確定要執行合約做多嗎？\n數量: {result['params']['quantity']} USDT\n槓桿: {result['params']['leverage']}x", ok="確認", cancel="取消") != 1:
+                    return
+            self.execute_order(result['params'])
+    
+    def futures_short(self, sender):
+        """合約做空"""
+        if not self.trading_enabled:
+            rumps.alert("交易功能未啟用", "請先在 config.json 中設定 trading_enabled: true")
+            return
+        
+        result = self.show_trading_dialog("合約交易", "做空")
+        if result['confirmed']:
+            if self.trading_settings.get('order_confirmation', True):
+                if rumps.alert("確認下單", f"確定要執行合約做空嗎？\n數量: {result['params']['quantity']} USDT\n槓桿: {result['params']['leverage']}x", ok="確認", cancel="取消") != 1:
+                    return
+            self.execute_order(result['params'])
+    
+    def futures_close(self, sender):
+        """合約平倉"""
+        if not self.trading_enabled:
+            rumps.alert("交易功能未啟用", "請先在 config.json 中設定 trading_enabled: true")
+            return
+        
+        result = self.show_trading_dialog("合約交易", "平倉")
+        if result['confirmed']:
+            if self.trading_settings.get('order_confirmation', True):
+                if rumps.alert("確認平倉", "確定要平倉所有持倉嗎？", ok="確認", cancel="取消") != 1:
+                    return
+            self.execute_order(result['params'])
+    
+    # ==================== 帳戶資訊方法 ====================
+    
+    def show_account_balance(self, sender):
+        """顯示帳戶餘額"""
+        if not self.binance_client:
+            rumps.alert("錯誤", "幣安客戶端未初始化")
+            return
+        
+        try:
+            # 現貨餘額
+            account = self.binance_client.get_account()
+            spot_balances = []
+            for asset in account['balances']:
+                free = float(asset['free'])
+                locked = float(asset['locked'])
+                if free > 0 or locked > 0:
+                    spot_balances.append(f"{asset['asset']}: {free + locked:.8f} (可用: {free:.8f})")
+            
+            # 合約餘額
+            futures_account = self.binance_client.futures_account()
+            futures_balance = float(futures_account['totalWalletBalance'])
+            
+            balance_info = f"💼 帳戶餘額\n\n📈 現貨餘額:\n" + "\n".join(spot_balances[:10])
+            if len(spot_balances) > 10:
+                balance_info += f"\n... 還有 {len(spot_balances) - 10} 個幣種"
+            
+            balance_info += f"\n\n⚡ 合約餘額:\n總餘額: {futures_balance:.2f} USDT"
+            
+            rumps.alert("帳戶餘額", balance_info)
+            
+        except Exception as e:
+            rumps.alert("錯誤", f"獲取帳戶餘額失敗: {str(e)}")
+    
+    def show_positions(self, sender):
+        """顯示持倉資訊"""
+        if not self.binance_client:
+            rumps.alert("錯誤", "幣安客戶端未初始化")
+            return
+        
+        try:
+            positions = self.binance_client.futures_position_information()
+            active_positions = []
+            
+            for pos in positions:
+                position_amt = float(pos['positionAmt'])
+                if position_amt != 0:
+                    unrealized_pnl = float(pos['unrealizedPnl'])
+                    mark_price = float(pos['markPrice'])
+                    entry_price = float(pos['entryPrice'])
+                    
+                    direction = "多單" if position_amt > 0 else "空單"
+                    pnl_color = "📈" if unrealized_pnl >= 0 else "📉"
+                    
+                    active_positions.append(
+                        f"{pos['symbol']}: {direction}\n"
+                        f"  數量: {abs(position_amt):.6f}\n"
+                        f"  開倉價: {entry_price:.6f}\n"
+                        f"  現價: {mark_price:.6f}\n"
+                        f"  {pnl_color} 未實現盈虧: {unrealized_pnl:.2f} USDT"
+                    )
+            
+            if active_positions:
+                positions_info = "📊 持倉資訊\n\n" + "\n\n".join(active_positions)
+            else:
+                positions_info = "📊 持倉資訊\n\n目前沒有持倉"
+            
+            rumps.alert("持倉資訊", positions_info)
+            
+        except Exception as e:
+            rumps.alert("錯誤", f"獲取持倉資訊失敗: {str(e)}")
+    
+    def show_orders(self, sender):
+        """顯示訂單紀錄"""
+        if not self.binance_client:
+            rumps.alert("錯誤", "幣安客戶端未初始化")
+            return
+        
+        try:
+            symbol = self.trading_pairs[self.current_crypto_index]
+            
+            # 獲取最近的現貨訂單
+            spot_orders = self.binance_client.get_all_orders(symbol=symbol, limit=5)
+            
+            # 獲取最近的合約訂單
+            futures_orders = self.binance_client.futures_get_all_orders(symbol=symbol, limit=5)
+            
+            orders_info = f"📋 {symbol} 最近訂單\n\n"
+            
+            if spot_orders:
+                orders_info += "📈 現貨訂單:\n"
+                for order in spot_orders[-3:]:  # 最近3筆
+                    status = "✅" if order['status'] == 'FILLED' else "⏰" if order['status'] == 'NEW' else "❌"
+                    orders_info += f"{status} {order['side']} {order['type']} - {order['origQty']} @ {order['price']}\n"
+            
+            if futures_orders:
+                orders_info += "\n⚡ 合約訂單:\n"
+                for order in futures_orders[-3:]:  # 最近3筆
+                    status = "✅" if order['status'] == 'FILLED' else "⏰" if order['status'] == 'NEW' else "❌"
+                    orders_info += f"{status} {order['side']} {order['type']} - {order['origQty']} @ {order['price']}\n"
+            
+            rumps.alert("訂單紀錄", orders_info)
+            
+        except Exception as e:
+            rumps.alert("錯誤", f"獲取訂單紀錄失敗: {str(e)}")
+
     def quit_app(self, sender):
         """退出應用程式"""
         print("🛑 正在關閉加密貨幣監控器...")
@@ -731,15 +1351,21 @@ class CryptoMenuBarMonitor(rumps.App):
 def main():
     """主函數"""
     print("=" * 60)
-    print("⚡ 賽博龐克加密貨幣選單欄監控器 v3.2 ⚡")
+    print("⚡ 加密貨幣選單欄監控器 v4.0 ⚡")
     print("🔄 使用幣安 (Binance) API - 精簡版")
     print("🌐 選單欄應用 - 跨所有桌面空間顯示")
     print("🎯 只獲取當前選擇的加密貨幣，節省網路資源")
+    print("💰 支援幣安現貨和合約交易功能")
     print("=" * 60)
     
     if not RUMPS_AVAILABLE:
         print("❌ 需要安裝 rumps 套件")
         print("請執行: pip install rumps")
+        return 1
+    
+    if not BINANCE_AVAILABLE:
+        print("⚠️ 需要安裝 python-binance 套件")
+        print("請執行: pip install python-binance")
         return 1
     
     try:

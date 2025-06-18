@@ -1,332 +1,230 @@
-# ⚡ 加密貨幣選單欄監控器 v3.2
+# ⚡ 加密貨幣選單欄監控器 v4.0 ⚡
 
-一個專為 macOS 設計的加密貨幣價格監控應用程式，使用原生選單欄顯示於系統導覽列。    
-讓你上班也能第一時間獲取幣安最新價格。
+🔄 使用幣安 (Binance) API - 精簡版  
+🌐 選單欄應用 - 跨所有桌面空間顯示  
+🎯 只獲取當前選擇的加密貨幣，節省網路資源  
+💰 支援幣安現貨和合約交易功能  
 
-## ✨ 核心特色
+## 🚀 新功能特色
 
-- 🌐 **跨桌面空間顯示**: 在所有 macOS 桌面空間都能看到價格
-- 🎯 **節省網路資源**: 只獲取當前選擇的加密貨幣價格
-- 🎨 **三種顯示模式**: 僅符號 | 簡潔模式 | 完整模式
-- 🔄 **即時價格更新**: 使用幣安 API，30 秒自動更新
-- 📊 **詳細資訊面板**: 完整的價格、漲跌、成交量資訊
-- 🚨 **價格警報功能**: 突破設定閾值時發送 macOS 系統通知
-- 🪙 **智能符號支援**: 自動識別新加密貨幣並生成符號
-- ⚙️ **配置檔案驅動**: 透過 JSON 檔案完全自訂
+### 💰 幣安交易功能
+- **現貨交易**：市價買入/賣出、限價買入/賣出
+- **合約交易**：做多/做空、平倉、可設定槓桿倍數
+- **止盈止損**：支援設定止盈止損百分比
+- **帳戶管理**：查看餘額、持倉、訂單紀錄
+- **安全確認**：所有交易都有確認對話框
 
-## 🖥️ 系統需求
+### 📊 價格監控功能
+- 即時價格更新
+- 24小時變化趨勢
+- 價格警報通知
+- 多種顯示模式
 
-- **macOS**: 10.12 或更新版本
-- **Python**: 3.7 或更新版本
-- **網路連線**: 用於獲取幣安 API 資料
-
-## 🚀 快速安裝
+## 🛠️ 安裝和設定
 
 ### 1. 安裝依賴套件
 
 ```bash
-pip install rumps requests
+pip install -r requirements.txt
 ```
 
-### 2. 設定執行權限
+### 2. 配置幣安 API
 
+有兩種方式設定 API 密鑰：
+
+#### 方式一：使用環境變數（推薦）
+
+**方法 A：直接設定環境變數**
 ```bash
-chmod +x run_menubar.sh
+# macOS/Linux
+export BINANCE_API_KEY="您的幣安API密鑰"
+export BINANCE_API_SECRET="您的幣安API密碼"
+
+# Windows
+set BINANCE_API_KEY=您的幣安API密鑰
+set BINANCE_API_SECRET=您的幣安API密碼
 ```
 
-### 3. 啟動監控器
-
+**方法 B：使用 .env 文件**
 ```bash
-./run_menubar.sh
+# 創建 .env 文件
+cat > .env << EOF
+BINANCE_API_KEY=您的幣安API密鑰
+BINANCE_API_SECRET=您的幣安API密碼
+EOF
+
+# 記得將 .env 文件加入 .gitignore（如果使用 Git）
+echo ".env" >> .gitignore
 ```
 
-啟動時會詢問您要前景執行還是背景執行：
-- **前景執行**: 可在終端看到運行訊息，關閉終端會停止程式
-- **背景執行**: 關閉終端後程式繼續運行
+**方法 C：在啟動時設定**
+```bash
+BINANCE_API_KEY="您的API密鑰" BINANCE_API_SECRET="您的API密碼" python crypto_menubar_monitor.py
+```
 
-## 📊 支援的加密貨幣
+#### 方式二：直接在配置文件中設定
 
-程式透過 `config.json` 檔案支援任何幣安交易所的交易對：
-
-### 預設支援
-- ₿ **Bitcoin** (BTCUSDT)
-- Ξ **Ethereum** (ETHUSDT) 
-- ₳ **Cardano** (ADAUSDT)
-- ◎ **Solana** (SOLUSDT)
-- Ð **Dogecoin** (DOGEUSDT)
-- ✕ **Ripple** (XRPUSDT)
-- ⚡ **TRON** (TRXUSDT)
-- Ł **Litecoin** (LTCUSDT)
-- ₿ **Bitcoin Cash** (BCHUSDT)
-- ✪ **Stellar** (XLMUSDT)
-- ⬢ **Chainlink** (LINKUSDT)
-
-### 擴展支援
-程式內建 20+ 種常見加密貨幣符號，包括：
-- ⬡ Binance Coin (BNB)
-- ● Polkadot (DOT)
-- 🦄 Uniswap (UNI)
-- ▲ Avalanche (AVAX)
-- 🐕 Shiba Inu (SHIB)
-- 等等...
-
-對於新的加密貨幣，程式會自動生成符號。
-
-## ⚙️ 配置檔案
-
-編輯 `config.json` 來自訂監控的加密貨幣：
+編輯 `config.json` 文件：
 
 ```json
 {
-    "trading_pairs": [
-        "ETHUSDT",
-        "BTCUSDT", 
-        "ADAUSDT",
-        "SOLUSDT",
-        "DOGEUSDT",
-        "XRPUSDT",
-        "TRXUSDT",
-        "LTCUSDT",
-        "BCHUSDT",
-        "XLMUSDT",
-        "LINKUSDT"
-    ],
-    "update_interval": 30,
-    "price_alert_enabled": true,
-    "alert_thresholds": {
-        "BTCUSDT": {
-            "high": 70000,
-            "low": 65000
-        },
-        "ETHUSDT": {
-            "high": 2600,
-            "low": 2400
-        }
+    "binance_api": {
+        "api_key": "您的幣安API密鑰",
+        "api_secret": "您的幣安API密碼",
+        "testnet": true,
+        "trading_enabled": false
     },
-    "alert_cooldown": 300
+    "trading_settings": {
+        "default_quantity_usdt": 10,
+        "default_leverage": 1,
+        "default_stop_loss_percentage": 5,
+        "default_take_profit_percentage": 10,
+        "order_confirmation": true
+    }
 }
 ```
 
-### 配置說明
-- **trading_pairs**: 要監控的交易對列表（必須是幣安支援的）
-- **update_interval**: 價格更新間隔（秒，建議不少於 30 秒）
-- **price_alert_enabled**: 是否啟用價格警報功能
-- **alert_thresholds**: 各交易對的警報閾值設定
-  - **high**: 高價警報閾值（價格達到或超過時觸發）
-  - **low**: 低價警報閾值（價格達到或低於時觸發）
-- **alert_cooldown**: 警報冷卻時間（秒），避免重複通知
+> 🔒 **安全提醒**：建議使用環境變數方式，避免將 API 密鑰直接寫在配置文件中，特別是當項目需要版本控制時。
 
-## 🎨 使用指南
+### 3. 獲取幣安 API 密鑰
 
-### 顯示模式切換
+1. 登入 [幣安官網](https://www.binance.com)
+2. 前往「API 管理」頁面
+3. 創建新的 API 密鑰
+4. **重要**：為了安全起見，建議先在測試網測試
 
-**🔺 僅符號模式**
-- 選單欄只顯示貨幣符號：`₿`
-- 節省最多空間
+#### 測試網設定
+- 測試網址：https://testnet.binance.vision/
+- 註冊測試帳號並獲取測試 API 密鑰
+- 在 config.json 中設定 `"testnet": true`
 
-**🔸 簡潔模式**（預設）
-- 選單欄顯示符號 + 完整價格：`₿ $67,234.56`
-- 平衡空間和資訊量
+#### 正式交易設定
+- 確保 API 密鑰有交易權限
+- 在 config.json 中設定：
+  - `"testnet": false`
+  - `"trading_enabled": true`
 
-**🔹 完整模式**
-- 選單欄顯示符號 + 價格 + 漲跌：`₿ $67,234.56 +2.34%`
-- 顯示最完整資訊
+## 🔧 使用說明
 
-### 查看詳細資訊
+### 啟動應用程式
 
-點擊選單欄圖示，查看：
-- 📊 簡潔資訊摘要
-- 📈 詳細資訊子選單
-  - 💰 現價
-  - 📊 24h 變化
-  - ⬆️ 24h 最高
-  - ⬇️ 24h 最低  
-  - 📈 成交量
-  - 🔄 更新時間
+```bash
+python crypto_menubar_monitor.py
+```
 
-### 切換加密貨幣
-
-1. 點擊選單欄圖示
-2. 選擇「💰 選擇加密貨幣」
-3. 點擊想要監控的貨幣
-4. 程式會立即切換並更新價格
-
-### 手動重新整理
-
-點擊選單中的「🔄 重新整理」立即更新價格。
-
-### 價格警報設定
-
-如果在配置檔案中啟用了價格警報功能：
-
-1. 點擊選單欄圖示
-2. 選擇「🚨 警報設定」
-3. 分別設定高價和低價警報閾值
-4. 當價格突破閾值時，會收到 macOS 系統通知
-
-**警報特色**：
-- 🔔 **系統通知**：使用 macOS 原生通知系統
-- ⏰ **智能冷卻**：避免短時間內重複通知（預設 5 分鐘）
-- 🎯 **精準觸發**：只在價格首次突破閾值時觸發
-- 💾 **自動儲存**：設定會自動存入配置檔案
-
-## 🔧 進階功能
-
-### 背景執行
-
-使用背景執行模式讓程式持續運行：
+或使用腳本：
 
 ```bash
 ./run_menubar.sh
-# 選擇 2（背景執行）
 ```
 
-停止背景程式：
-```bash
-pkill -f crypto_menubar_monitor
-```
+### 💰 交易功能使用
 
-或從選單欄點擊「❌ 退出」
+1. **啟用交易功能**
+   - 在 config.json 中設定有效的 API 密鑰
+   - 設定 `"trading_enabled": true`
 
-### 新增自訂加密貨幣
+2. **現貨交易**
+   - 選擇「💰 交易功能」→「📈 現貨交易」
+   - 選擇市價或限價買入/賣出
+   - 設定交易數量和止盈止損
 
-1. 編輯 `config.json`
-2. 在 `trading_pairs` 中新增幣安支援的交易對
-3. 重新啟動程式
+3. **合約交易**
+   - 選擇「💰 交易功能」→「⚡ 合約交易」
+   - 選擇做多/做空/平倉
+   - 設定槓桿倍數和止盈止損
 
-範例：新增 Polygon (MATIC)
-```json
-{
-    "trading_pairs": [
-        "ETHUSDT",
-        "BTCUSDT",
-        "MATICUSDT"
-    ]
-}
-```
+4. **查看帳戶資訊**
+   - 「💼 帳戶餘額」：查看現貨和合約餘額
+   - 「📊 持倉資訊」：查看當前合約持倉
+   - 「📋 訂單紀錄」：查看最近的交易訂單
 
-程式會自動為 MATIC 生成符號 ⬟ 和名稱 Polygon。
+### 🚨 價格警報設定
 
-### 開機自動啟動
+1. 點擊「🚨 警報設定」
+2. 設定高價和低價警報閾值
+3. 當價格觸及閾值時會收到系統通知
 
-1. 打開「系統偏好設定」→「使用者與群組」
-2. 選擇「登入項目」
-3. 新增 `run_menubar.sh` 腳本
+### 🎨 顯示模式
 
-或使用 LaunchAgent（推薦）：
+- **簡潔模式**：顯示價格和變化
+- **完整模式**：顯示完整資訊
+- **僅符號**：只顯示貨幣符號
 
-```bash
-# 建立 LaunchAgent 檔案
-cp com.crypto.monitor.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.crypto.monitor.plist
-```
+## ⚠️ 安全注意事項
 
-## 🎯 優勢特色
+### 🔒 API 密鑰安全
+- **絕對不要**將 API 密鑰分享給他人
+- **建議**先在測試網測試所有功能
+- **設定** API 密鑰的 IP 白名單限制
+- **定期**更換 API 密鑰
 
-### vs 傳統浮動視窗
-- ✅ **永不消失**: 不會被 Mission Control 影響
-- ✅ **跨空間顯示**: 在所有桌面都能看到
-- ✅ **原生體驗**: 完美融入 macOS 選單欄
-- ✅ **節省空間**: 不佔用桌面空間
+### 💸 交易風險管理
+- **小額測試**：先用小額資金測試
+- **止盈止損**：總是設定止盈止損
+- **合約風險**：合約交易風險較高，請謹慎使用
+- **確認對話框**：保持開啟訂單確認功能
 
-### vs 網頁監控
-- ✅ **即時更新**: 自動背景更新，無需手動刷新
-- ✅ **離線友好**: 本地快取資料
-- ✅ **低資源消耗**: 比瀏覽器分頁更輕量
+## 📋 配置選項說明
 
-### vs 手機 App
-- ✅ **無需切換**: 始終在視線範圍內
-- ✅ **工作流程**: 完美融入桌面工作環境
-- ✅ **多螢幕支援**: 在所有螢幕的選單欄都會顯示
+### binance_api
+- `api_key`: 幣安 API 密鑰
+- `api_secret`: 幣安 API 密碼
+- `testnet`: 是否使用測試網 (true/false)
+- `trading_enabled`: 是否啟用交易功能 (true/false)
 
-## 🛠️ 疑難排解
+### trading_settings
+- `default_quantity_usdt`: 預設交易金額 (USDT)
+- `default_leverage`: 預設槓桿倍數
+- `default_stop_loss_percentage`: 預設止損百分比
+- `default_take_profit_percentage`: 預設止盈百分比
+- `order_confirmation`: 是否顯示訂單確認對話框
 
-### 常見問題
+## 🐛 常見問題
 
-**Q: 選單欄沒有顯示圖示**
-```bash
-# 檢查 rumps 套件
-pip show rumps
+### Q: 為什麼交易功能顯示為未啟用？
+A: 請檢查：
+1. API 密鑰是否正確設定
+2. `trading_enabled` 是否設為 `true`
+3. 網路連接是否正常
 
-# 重新安裝
-pip install --upgrade rumps
-```
+### Q: 如何切換到正式交易？
+A: 
+1. 獲取正式的幣安 API 密鑰
+2. 在 config.json 中設定 `"testnet": false`
+3. 確保 `"trading_enabled": true`
 
-**Q: 價格無法更新**
-```bash
-# 檢查網路連線
-curl -s "https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT"
+### Q: 止盈止損功能如何使用？
+A: 在下單對話框中：
+1. 勾選「啟用止損」或「啟用止盈」
+2. 設定百分比（如 5% 表示價格變動 5% 時觸發）
+3. 確認下單後會自動設定止盈止損訂單
 
-# 檢查 API 回應
-python3 -c "import requests; print(requests.get('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT').status_code)"
-```
+## 📝 更新日誌
 
-**Q: 程式無法啟動**
-```bash
-# 檢查 Python 版本
-python3 --version
+### v4.0
+- ✅ 新增幣安現貨交易功能
+- ✅ 新增幣安合約交易功能
+- ✅ 新增止盈止損設定
+- ✅ 新增帳戶餘額查看
+- ✅ 新增持倉資訊查看
+- ✅ 新增訂單紀錄查看
+- ✅ 新增交易確認對話框
+- ✅ 支援測試網和正式網切換
 
-# 檢查配置檔案
-cat config.json | python3 -m json.tool
-```
+### v3.2
+- 價格監控和警報功能
+- 多種顯示模式
+- 支援多種加密貨幣
 
-**Q: 背景程式如何停止**
-```bash
-# 方法 1：從選單欄退出
-# 點擊選單欄圖示 → ❌ 退出
+## 🤝 支援和回饋
 
-# 方法 2：命令列停止
-pkill -f crypto_menubar_monitor
+如果您遇到任何問題或有功能建議，請在 GitHub 上提交 Issue。
 
-# 方法 3：查看並停止特定程序
-ps aux | grep crypto_menubar_monitor
-kill [PID]
-```
+## ⚖️ 免責聲明
 
-**Q: 新增的加密貨幣沒有符號**
-A: 程式會自動為新貨幣生成符號，通常使用貨幣代碼的前 2-3 個字母。
-
-## 📋 檔案結構
-
-```
-Monitor_price/
-├── crypto_menubar_monitor.py   # 主程式檔案
-├── run_menubar.sh             # 啟動腳本  
-├── config.json                # 配置檔案
-├── README.md                  # 說明文件
-└── 使用指南.md                # 詳細使用指南
-```
-
-## 📈 API 資訊
-
-- **資料來源**: 幣安 (Binance) API
-- **更新頻率**: 30 秒（可調整）
-- **API 端點**: `https://api.binance.com/api/v3/ticker/24hr`
-- **限制**: 免費 API，每日有使用限制
-
-## 🔗 相關連結
-
-- [幣安 API 文檔](https://binance-docs.github.io/apidocs/)
-- [Rumps 套件文檔](https://github.com/jaredks/rumps)
-- [macOS 選單欄應用開發](https://developer.apple.com/design/human-interface-guidelines/macos/menus/menu-bar-menus/)
-
-## 📝 版本資訊
-
-- **當前版本**: v3.2 精簡版
-- **發布日期**: 2024
-- **主要功能**: 選單欄加密貨幣價格監控
-- **支援平台**: macOS 10.12+
-- **授權**: MIT License
-
-## 🆘 技術支援
-
-如遇到問題，請檢查：
-
-1. **系統需求**: macOS 版本和 Python 版本
-2. **網路連線**: 確保可以存取幣安 API
-3. **配置檔案**: `config.json` 格式正確
-4. **套件安裝**: rumps 和 requests 套件完整安裝
+此工具僅供教育和研究用途。加密貨幣交易存在風險，請謹慎使用。開發者不對任何交易損失承擔責任。
 
 ---
 
-**💡 提示**: 這個應用程式專為 macOS 用戶設計，完美解決了跨桌面空間監控加密貨幣價格的需求。無論您使用多少個桌面空間，價格資訊始終在您的視線範圍內！ 
+**⚡ 享受您的加密貨幣交易體驗！ ⚡** 

@@ -15,10 +15,24 @@
     "update_interval": 30,
     "price_alert_enabled": true,
     "alert_thresholds": {
-        "ETHUSDT": {
-            "high": 2659.00,
-            "low": 2600.00
+        "BTCUSDT": {
+            "high": 105333.00,
+            "low": 104630.00
         }
     },
-    "alert_cooldown": 30
+    "alert_cooldown": 300,
+    "binance_api": {
+        "api_key": "",
+        "api_secret": "",
+        "testnet": true,
+        "trading_enabled": false,
+        "_comment": "API 密鑰可以直接設定在這裡，或使用環境變數 BINANCE_API_KEY 和 BINANCE_API_SECRET"
+    },
+    "trading_settings": {
+        "default_quantity_usdt": 10,
+        "default_leverage": 1,
+        "default_stop_loss_percentage": 5,
+        "default_take_profit_percentage": 10,
+        "order_confirmation": true
+    }
 }
