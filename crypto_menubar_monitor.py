@@ -7,6 +7,7 @@
 🌐 選單欄應用 - 跨所有桌面空間顯示
 🎯 只獲取當前選擇的加密貨幣，節省網路資源
 💰 支援幣安現貨和合約交易功能
+📈 新增 K 線圖表功能 - 跟隨滑鼠游標顯示
 """
 
 import sys
@@ -48,6 +49,16 @@ except ImportError:
     print("⚠️ python-binance 套件未安裝")
     print("請執行: pip install python-binance")
 
+# 檢查並導入圖表相關套件
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    import subprocess
+    CHART_AVAILABLE = True
+except ImportError as e:
+    CHART_AVAILABLE = False
+    print(f"⚠️ 圖表相關套件未安裝: {e}")
+    print("請執行: pip install Pillow")
+
 class CryptoMenuBarMonitor(rumps.App):
     def __init__(self):
         # 載入配置
@@ -62,6 +73,24 @@ class CryptoMenuBarMonitor(rumps.App):
         self.current_crypto_index = 0
         self.crypto_data = {}
         self.display_mode = "compact"  # compact, full, symbol_only
+        
+        # 價格走勢圖相關變數
+        self.chart_visible = False
+        self.chart_thread = None
+        self.chart_timeframe = "15m"  # 預設時間區間
+        self.chart_update_interval = 30  # 更新間隔（秒）
+        self.chart_image_path = "/tmp/crypto_chart.png"
+        self.preview_process = None  # 預覽程式進程
+        
+        # 時間區間設定（區間：[幣安K線間隔, K線數量, 顯示名稱, 更新間隔(秒)]）
+        self.timeframe_settings = {
+            "1m": ["1m", 60, "1分鐘K", 30],       # 1分鐘K線 x 60根
+            "5m": ["5m", 60, "5分鐘K", 60],       # 5分鐘K線 x 60根
+            "15m": ["15m", 60, "15分鐘K", 120],   # 15分鐘K線 x 60根
+            "1h": ["1h", 60, "1小時K", 300],      # 1小時K線 x 60根
+            "4h": ["4h", 60, "4小時K", 600],      # 4小時K線 x 60根
+            "1d": ["1d", 60, "1天K", 1800]        # 1天K線 x 60根
+        }
         
         # 初始化幣安客戶端
         self.init_binance_client()
@@ -419,6 +448,38 @@ class CryptoMenuBarMonitor(rumps.App):
         self.display_submenu.add(self.mode_full)
         self.display_submenu.add(self.mode_symbol_only)
         self.menu.add(self.display_submenu)
+        
+        # 價格走勢圖功能
+        if CHART_AVAILABLE:
+            self.menu.add(rumps.separator)
+            self.chart_submenu = rumps.MenuItem("📈 走勢圖")
+            self.chart_toggle = rumps.MenuItem("👁️ 顯示走勢圖", callback=self.toggle_chart)
+            self.chart_submenu.add(self.chart_toggle)
+            
+            # 時間區間選擇
+            self.chart_submenu.add(rumps.separator)
+            self.timeframe_submenu = rumps.MenuItem("⏰ 時間區間")
+            self.timeframe_1m = rumps.MenuItem("1分鐘K (60根)", callback=lambda s: self.set_chart_timeframe("1m"))
+            self.timeframe_5m = rumps.MenuItem("5分鐘K (60根)", callback=lambda s: self.set_chart_timeframe("5m"))
+            self.timeframe_15m = rumps.MenuItem("15分鐘K (60根)", callback=lambda s: self.set_chart_timeframe("15m"))
+            self.timeframe_1h = rumps.MenuItem("1小時K (60根)", callback=lambda s: self.set_chart_timeframe("1h"))
+            self.timeframe_4h = rumps.MenuItem("4小時K (60根)", callback=lambda s: self.set_chart_timeframe("4h"))
+            self.timeframe_1d = rumps.MenuItem("1天K (60根)", callback=lambda s: self.set_chart_timeframe("1d"))
+            
+            self.timeframe_15m.state = True  # 預設選中 15 分鐘
+            
+            self.timeframe_submenu.add(self.timeframe_1m)
+            self.timeframe_submenu.add(self.timeframe_5m)
+            self.timeframe_submenu.add(self.timeframe_15m)
+            self.timeframe_submenu.add(self.timeframe_1h)
+            self.timeframe_submenu.add(self.timeframe_4h)
+            self.timeframe_submenu.add(self.timeframe_1d)
+            self.chart_submenu.add(self.timeframe_submenu)
+            
+            self.menu.add(self.chart_submenu)
+        else:
+            self.menu.add(rumps.separator)
+            self.menu.add(rumps.MenuItem("📈 走勢圖 (需要安裝 Pillow)", callback=None))
         
         # 分隔線
         self.menu.add(rumps.separator)
@@ -1451,18 +1512,342 @@ class CryptoMenuBarMonitor(rumps.App):
         """退出應用程式"""
         print("🛑 正在關閉加密貨幣監控器...")
         self.running = False
+        
+        # 關閉圖表
+        if self.chart_visible:
+            self.hide_chart()
+        
+        # 等待執行緒結束
         if self.update_thread and self.update_thread.is_alive():
             self.update_thread.join(timeout=2)
+        if self.chart_thread and self.chart_thread.is_alive():
+            self.chart_thread.join(timeout=2)
+        
+        # 刪除臨時圖片檔案
+        try:
+            if os.path.exists(self.chart_image_path):
+                os.remove(self.chart_image_path)
+        except:
+            pass
+        
         rumps.quit_application()
+
+    # ==================== 價格走勢圖方法 ====================
+    
+    def toggle_chart(self, sender):
+        """切換走勢圖顯示"""
+        if not CHART_AVAILABLE:
+            rumps.alert("錯誤", "需要安裝 Pillow 套件才能使用走勢圖功能")
+            return
+        
+        if self.chart_visible:
+            self.hide_chart()
+        else:
+            self.show_chart()
+    
+    def show_chart(self):
+        """顯示走勢圖"""
+        if self.chart_visible:
+            return
+        
+        try:
+            current_pair = self.trading_pairs[self.current_crypto_index]
+            timeframe_name = self.timeframe_settings.get(self.chart_timeframe, ["", 0, "未知", 0])[2]
+            print(f"📈 正在載入 {current_pair} 的 {timeframe_name} 走勢圖...")
+            
+            # 更新選單狀態
+            self.chart_toggle.title = "🙈 隱藏走勢圖"
+            self.chart_visible = True
+            
+            # 啟動圖表更新執行緒
+            self.chart_thread = threading.Thread(target=self.chart_update_worker, daemon=True)
+            self.chart_thread.start()
+            
+        except Exception as e:
+            print(f"❌ 顯示走勢圖失敗: {e}")
+            rumps.alert("錯誤", f"顯示走勢圖失敗: {str(e)}")
+    
+    def hide_chart(self):
+        """隱藏走勢圖"""
+        if not self.chart_visible:
+            return
+        
+        try:
+            # 更新選單狀態
+            self.chart_toggle.title = "👁️ 顯示走勢圖"
+            self.chart_visible = False
+            
+            # 關閉預覽程式
+            if self.preview_process:
+                try:
+                    self.preview_process.terminate()
+                    self.preview_process = None
+                except:
+                    pass
+            
+            print("📈 走勢圖已隱藏")
+            
+        except Exception as e:
+            print(f"❌ 隱藏走勢圖失敗: {e}")
+    
+    def set_chart_timeframe(self, timeframe):
+        """設定走勢圖時間區間"""
+        self.chart_timeframe = timeframe
+        
+        # 更新選單狀態
+        self.timeframe_1m.state = (timeframe == "1m")
+        self.timeframe_5m.state = (timeframe == "5m")
+        self.timeframe_15m.state = (timeframe == "15m")
+        self.timeframe_1h.state = (timeframe == "1h")
+        self.timeframe_4h.state = (timeframe == "4h")
+        self.timeframe_1d.state = (timeframe == "1d")
+        
+        # 獲取時間區間設定
+        settings = self.timeframe_settings.get(timeframe, ["", 0, "未知", 0])
+        timeframe_name = settings[2]
+        
+        print(f"⏰ 走勢圖時間區間已設定為: {timeframe_name}")
+        
+        # 如果走勢圖正在顯示，立即重新繪製
+        if self.chart_visible:
+            print(f"🔄 將重新從幣安獲取 {timeframe_name} 的K線數據")
+    
+    def get_kline_data_from_binance(self):
+        """從幣安獲取K線數據"""
+        try:
+            current_pair = self.trading_pairs[self.current_crypto_index]
+            settings = self.timeframe_settings.get(self.chart_timeframe, ["1m", 15, "未知", 30])
+            interval = settings[0]  # K線間隔
+            limit = settings[1]     # K線數量
+            
+            # 使用幣安公開 API 獲取 K 線數據
+            url = f"https://api.binance.com/api/v3/klines"
+            params = {
+                'symbol': current_pair,
+                'interval': interval,
+                'limit': limit
+            }
+            
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            klines = response.json()
+            
+            # 解析 K 線數據（開高低收）
+            kline_data = []
+            for kline in klines:
+                timestamp = datetime.fromtimestamp(kline[0] / 1000).strftime("%H:%M")
+                kline_data.append({
+                    'timestamp': timestamp,
+                    'open': float(kline[1]),    # 開盤價
+                    'high': float(kline[2]),    # 最高價
+                    'low': float(kline[3]),     # 最低價
+                    'close': float(kline[4]),   # 收盤價
+                    'volume': float(kline[5])   # 成交量
+                })
+            
+            return kline_data
+            
+        except Exception as e:
+            print(f"❌ 從幣安獲取K線數據失敗: {e}")
+            return None
+    
+    def get_font(self, size=12):
+        """獲取中文字體"""
+        try:
+            # macOS 系統中文字體
+            font_paths = [
+                '/System/Library/Fonts/PingFang.ttc',  # macOS 預設中文字體
+                '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+                '/Library/Fonts/Arial Unicode.ttf'
+            ]
+            for font_path in font_paths:
+                if os.path.exists(font_path):
+                    return ImageFont.truetype(font_path, size)
+        except:
+            pass
+        return ImageFont.load_default()
+    
+    def generate_chart_image(self):
+        """生成K線圖圖片"""
+        try:
+            # 從幣安獲取K線數據
+            kline_data = self.get_kline_data_from_binance()
+            if not kline_data or len(kline_data) < 2:
+                print("❌ K線數據不足，無法生成圖表")
+                return None
+            
+            # 圖表尺寸和邊距（縮小尺寸）
+            width, height = 800, 400
+            margin_left = 60
+            margin_right = 20
+            margin_top = 40
+            margin_bottom = 40
+            chart_width = width - margin_left - margin_right
+            chart_height = height - margin_top - margin_bottom
+            
+            # 創建圖片
+            img = Image.new('RGB', (width, height), color='#1a1a1a')
+            draw = ImageDraw.Draw(img)
+            
+            # 獲取字體（縮小字體尺寸）
+            title_font = self.get_font(14)
+            label_font = self.get_font(10)
+            small_font = self.get_font(8)
+            
+            # 獲取價格範圍
+            all_prices = []
+            for k in kline_data:
+                all_prices.extend([k['high'], k['low']])
+            max_price = max(all_prices)
+            min_price = min(all_prices)
+            price_range = max_price - min_price if max_price != min_price else 1
+            
+            # 繪製標題（包含時間區間）
+            current_pair = self.trading_pairs[self.current_crypto_index]
+            timeframe_name = self.timeframe_settings.get(self.chart_timeframe, ["", 0, "未知", 0])[2]
+            title = f"{current_pair} K線圖 ({timeframe_name})"
+            draw.text((width // 2 - 80, 10), title, fill='white', font=title_font)
+            
+            # 繪製價格標籤
+            draw.text((5, margin_top), f"${max_price:.2f}", fill='#888', font=label_font)
+            draw.text((5, height - margin_bottom), f"${min_price:.2f}", fill='#888', font=label_font)
+            
+            # 繪製參考線
+            for i in range(5):
+                y = margin_top + (chart_height / 4) * i
+                draw.line([(margin_left, y), (width - margin_right, y)], fill='#333', width=1)
+            
+            # 計算每根K線的寬度
+            candle_width = chart_width / len(kline_data)
+            candle_body_width = candle_width * 0.6
+            
+            # 繪製K線
+            for i, kline in enumerate(kline_data):
+                x = margin_left + i * candle_width + candle_width / 2
+                
+                # 計算價格對應的Y座標
+                def price_to_y(price):
+                    return margin_top + chart_height - ((price - min_price) / price_range) * chart_height
+                
+                open_y = price_to_y(kline['open'])
+                close_y = price_to_y(kline['close'])
+                high_y = price_to_y(kline['high'])
+                low_y = price_to_y(kline['low'])
+                
+                # 判斷漲跌
+                is_rising = kline['close'] >= kline['open']
+                color = '#00ff00' if is_rising else '#ff0000'  # 綠色上漲，紅色下跌
+                
+                # 繪製上影線和下影線
+                draw.line([(x, high_y), (x, low_y)], fill=color, width=1)
+                
+                # 繪製K線實體
+                body_top = min(open_y, close_y)
+                body_bottom = max(open_y, close_y)
+                body_height = body_bottom - body_top if body_bottom > body_top else 1
+                
+                # 實體矩形
+                left = x - candle_body_width / 2
+                right = x + candle_body_width / 2
+                
+                if is_rising:
+                    # 上漲：空心（只有邊框）
+                    draw.rectangle([left, body_top, right, body_bottom], outline=color, width=1)
+                else:
+                    # 下跌：實心
+                    draw.rectangle([left, body_top, right, body_bottom], fill=color, outline=color)
+            
+            # 繪製最新價格標記和標籤
+            latest = kline_data[-1]
+            latest_price = latest['close']
+            latest_y = price_to_y(latest_price)
+            
+            # 繪製價格線（使用短線段模擬虛線效果）
+            dash_length = 10
+            gap_length = 5
+            x = margin_left
+            while x < width - margin_right:
+                draw.line([(x, latest_y), (min(x + dash_length, width - margin_right), latest_y)], 
+                         fill='yellow', width=1)
+                x += dash_length + gap_length
+            
+            # 繪製價格標籤背景
+            price_text = f"${latest_price:.2f}"
+            draw.rectangle([width - margin_right - 70, latest_y - 10, 
+                          width - margin_right, latest_y + 10], 
+                         fill='yellow', outline='yellow')
+            draw.text((width - margin_right - 65, latest_y - 8), price_text, 
+                     fill='black', font=label_font)
+            
+            # 繪製時間軸
+            if len(kline_data) > 0:
+                # 顯示幾個時間點（根據K線數量調整顯示數量）
+                num_labels = min(8, len(kline_data) // 10 + 1)  # 最多顯示8個時間標籤
+                step = max(1, len(kline_data) // num_labels)
+                for i in range(0, len(kline_data), step):
+                    x = margin_left + i * candle_width + candle_width / 2
+                    draw.text((x - 12, height - margin_bottom + 5), 
+                             kline_data[i]['timestamp'], fill='#888', font=small_font)
+            
+            # 保存圖片
+            img.save(self.chart_image_path)
+            return self.chart_image_path
+            
+        except Exception as e:
+            print(f"❌ 生成走勢圖失敗: {e}")
+            return None
+    
+    
+    def show_chart_image(self):
+        """使用系統預覽顯示走勢圖"""
+        try:
+            image_path = self.generate_chart_image()
+            if not image_path:
+                return
+            
+            # 使用 macOS 的 open 命令打開圖片（非阻塞，避免 GUI 執行緒問題）
+            # 使用 -g 參數讓預覽程式在背景開啟，不搶奪焦點
+            if self.preview_process is None:
+                # 第一次打開
+                self.preview_process = subprocess.Popen(
+                    ['open', '-g', image_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            else:
+                # 已經打開了，只需要觸發預覽程式重新載入
+                # 使用 touch 命令更新檔案修改時間，讓預覽程式自動重新載入
+                subprocess.run(['touch', image_path], check=False)
+            
+        except Exception as e:
+            print(f"❌ 顯示走勢圖失敗: {e}")
+    
+    def chart_update_worker(self):
+        """圖表更新執行緒"""
+        try:
+            while self.chart_visible and self.running:
+                # 獲取當前時間區間的設定
+                settings = self.timeframe_settings.get(self.chart_timeframe, ["1m", 15, "未知", 30])
+                update_interval = settings[3]  # 更新間隔（秒）
+                
+                # 從幣安獲取K線數據並生成圖表
+                self.show_chart_image()
+                
+                # 等待更新間隔
+                time.sleep(update_interval)
+            
+        except Exception as e:
+            print(f"❌ 圖表更新執行緒錯誤: {e}")
 
 def main():
     """主函數"""
     print("=" * 60)
-    print("⚡ 加密貨幣選單欄監控器 v4.0 ⚡")
+    print("⚡ 加密貨幣選單欄監控器 v4.2 ⚡")
     print("🔄 使用幣安 (Binance) API - 精簡版")
     print("🌐 選單欄應用 - 跨所有桌面空間顯示")
     print("🎯 只獲取當前選擇的加密貨幣，節省網路資源")
     print("💰 支援幣安現貨和合約交易功能")
+    print("📈 價格走勢圖功能 - 每30秒自動更新")
     print("=" * 60)
     
     if not RUMPS_AVAILABLE:

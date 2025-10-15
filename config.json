@@ -3,6 +3,8 @@
         "ETHUSDT",
         "BTCUSDT",
         "ADAUSDT",
+        "AVAXUSDT",
+        "SUIUSDT",
         "SOLUSDT",
         "DOGEUSDT",
         "XRPUSDT",
@@ -16,8 +18,8 @@
     "price_alert_enabled": true,
     "alert_thresholds": {
         "ETHUSDT": {
-            "high": 2525.0,
-            "low": 2510.0
+            "high": 4800.0,
+            "low": 3900.0
         }
     },
     "alert_cooldown": 300,
