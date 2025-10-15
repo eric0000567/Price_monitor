@@ -1517,6 +1517,14 @@ class CryptoMenuBarMonitor(rumps.App):
         if self.chart_visible:
             self.hide_chart()
         
+        # 確保關閉 Quick Look 或預覽程式
+        if self.preview_process:
+            try:
+                self.preview_process.terminate()
+                self.preview_process = None
+            except:
+                pass
+        
         # 等待執行緒結束
         if self.update_thread and self.update_thread.is_alive():
             self.update_thread.join(timeout=2)
@@ -1577,7 +1585,7 @@ class CryptoMenuBarMonitor(rumps.App):
             self.chart_toggle.title = "👁️ 顯示走勢圖"
             self.chart_visible = False
             
-            # 關閉預覽程式
+            # 關閉 Quick Look 或預覽程式
             if self.preview_process:
                 try:
                     self.preview_process.terminate()
@@ -1799,28 +1807,40 @@ class CryptoMenuBarMonitor(rumps.App):
     
     
     def show_chart_image(self):
-        """使用系統預覽顯示走勢圖"""
+        """使用 macOS 原生方式顯示走勢圖"""
         try:
             image_path = self.generate_chart_image()
             if not image_path:
                 return
             
-            # 使用 macOS 的 open 命令打開圖片（非阻塞，避免 GUI 執行緒問題）
-            # 使用 -g 參數讓預覽程式在背景開啟，不搶奪焦點
+            # 使用 macOS 的 Quick Look 來顯示圖片
+            # 這會創建一個原生的浮動視窗
             if self.preview_process is None:
-                # 第一次打開
+                # 第一次打開，使用 Quick Look
                 self.preview_process = subprocess.Popen(
-                    ['open', '-g', image_path],
+                    ['qlmanage', '-p', image_path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
             else:
-                # 已經打開了，只需要觸發預覽程式重新載入
-                # 使用 touch 命令更新檔案修改時間，讓預覽程式自動重新載入
+                # 已經打開了，只需要觸發重新載入
                 subprocess.run(['touch', image_path], check=False)
             
         except Exception as e:
             print(f"❌ 顯示走勢圖失敗: {e}")
+            # 如果 Quick Look 失敗，回退到預覽程式
+            try:
+                if self.preview_process is None:
+                    self.preview_process = subprocess.Popen(
+                        ['open', '-g', image_path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                else:
+                    subprocess.run(['touch', image_path], check=False)
+            except Exception as e2:
+                print(f"❌ 備用顯示方式也失敗: {e2}")
+    
     
     def chart_update_worker(self):
         """圖表更新執行緒"""
